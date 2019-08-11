@@ -23,7 +23,7 @@ cfgs.coco_dir = '/wdc/LXY.data/CoCo2017'
 cfgs.Show_train_info = 100
 cfgs.Smry_iter = 2000
 cfgs.Total_Imgs = 133459#133644
-cfgs.ImgSize = 512
+cfgs.ImgSize = 640
 cfgs.Pkl_Path = '/data/train_record/voc_coco.pkl'
 cfgs.ModelPrefix = 'coco_retinanet' #'coco_retinanet' #'coco_resnet_50_state_dict' #
 cfgs.Momentum = 0.9
@@ -33,7 +33,7 @@ cfgs.lr_gamma = 0.1
 cfgs.epoch_num = 120000
 #*******************************************************test
 cfgs.top_k = 300
-cfgs.score_threshold = 0.3
+cfgs.score_threshold = 0.2
 cfgs.nms_threshold = 0.45
 cfgs.model_dir = '/data/models/retinanet'
 
@@ -52,5 +52,4 @@ cfgs.model_dir = '/data/models/retinanet'
 #                 'keyboard', 'cell phone', 'microwave oven', 'toaster', 'sink',
 #                 'refrigerator', 'book', 'clock', 'vase', 'scissors',
 #                 'teddy bear', 'hair drier', 'toothbrush']
-
 cfgs.shownames = ['person','bicycle','motorbike','car','bus','aeroplane','train','boat']

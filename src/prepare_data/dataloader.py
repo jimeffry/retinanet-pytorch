@@ -282,13 +282,14 @@ class TestDataset(Dataset):
         tmp_annotation = self.annotations[index]
         tmp_path = tmp_annotation[0]
         img_data = cv2.imread(tmp_path)
+        img_org = img_data
         h,w = img_data.shape[:2]
         img_data = img_data[:,:,::-1]
         gt_box_label = np.array(tmp_annotation[1:],dtype=np.float32).reshape(-1,5)
         #print(gt_box_label) 
         img_data, window = self.re_scale(img_data,gt_box_label)
         img_data = self.normalize(img_data)
-        return torch.from_numpy(img_data).permute(2, 0, 1),gt_box_label,h,w,window
+        return torch.from_numpy(img_data).permute(2, 0, 1),gt_box_label,h,w,window,img_org
         #return img_data,gt_box_label
     
     def re_scale(self,img, boxes):

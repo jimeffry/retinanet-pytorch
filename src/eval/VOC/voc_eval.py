@@ -159,7 +159,7 @@ def write_voc_results_file(all_boxes, dataset,save_dir):
         filename = get_voc_results_file_template(set_type, cls_name,save_dir)
         with open(filename, 'wt') as f:
             for im_ind, index in enumerate(dataset.ids):
-                dets = all_boxes[cls_ind+1][im_ind]
+                dets = all_boxes[cls_ind][im_ind]
                 if dets == []:
                     continue
                 # the VOCdevkit expects 1-based indices
@@ -219,7 +219,8 @@ def voc_ap(rec, prec, use_07_metric=True):
             else:
                 p = np.max(prec[rec >= t])
                 rec_num +=1
-            ap = ap + p 
+            ap = ap + p
+        #ap = ap/11.0
         ap = ap / float(rec_num)
     else:
         # correct AP calculation
@@ -395,7 +396,7 @@ def test_net(save_folder, net,detect_model, cuda, dataset, top_k,anchors,thresh=
     #    all_boxes[cls][image] = N x 5 array of detections in
     #    (x1, y1, x2, y2, score)
     all_boxes = [[[] for _ in range(num_images)]
-                 for _ in range(len(labelmap)+1)]
+                 for _ in range(len(labelmap))]
 
     # timers
     #_t = {'im_detect': Timer(), 'misc': Timer()}
@@ -406,7 +407,7 @@ def test_net(save_folder, net,detect_model, cuda, dataset, top_k,anchors,thresh=
         all_boxes = pickle.load(f)
     else:
         for i in tqdm(range(num_images)):
-            im, gt,img_h,img_w,window = dataset.pull_item(i)
+            im, gt,img_h,img_w,window,img_org = dataset.pull_item(i)
             x = Variable(im.unsqueeze(0))
             if args.cuda:
                 x = x.cuda()
@@ -418,10 +419,12 @@ def test_net(save_folder, net,detect_model, cuda, dataset, top_k,anchors,thresh=
             #scores, class_ids, detections = det_out
             detections = dataset.de_scale(detections,window,img_w,img_h)
             # skip j = 0, because it's the background class
-            
-            for j in range(detections.size(1)):
+            #frame = label_show(detections.numpy(),img_org)
+            #cv2.imshow('test',frame)
+            #cv2.waitKey(0)
+            for j in range(0,detections.size(1)):
                 dets = detections[0, j, :]
-                mask = dets[:, 0].gt(0.001).expand(5, dets.size(0)).t() #lxy score threshold
+                mask = dets[:, 0].gt(0.).expand(5, dets.size(0)).t() #lxy score threshold
                 dets = torch.masked_select(dets, mask).view(-1, 5)
                 if dets.size(0) == 0:
                     continue
@@ -452,6 +455,22 @@ def evaluate_detections(box_list, output_dir, dataset):
     do_python_eval(output_dir)
 
 
+def label_show(boxes,frame):
+    height,width = frame.shape[:2]
+    scale = np.array([width, height, width, height])
+    COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
+    FONT = cv2.FONT_HERSHEY_SIMPLEX
+    for i in range(0,boxes.shape[1]):
+        j = 0
+        while boxes[0, i, j, 0] > 0:
+            pt = boxes[0, i, j, 1:] #* scale
+            #print(pt)
+            cv2.rectangle(frame,(int(pt[0]), int(pt[1])),(int(pt[2]),int(pt[3])),(0,255,0),2)
+            cv2.putText(frame, cfgs.shownames[i], (int(pt[0]), int(pt[1])),
+                        FONT, 1, (255, 255, 255), 1, 4) #cv2.LINE_AA)
+            j += 1
+    return frame
+
 if __name__ == '__main__':
     # load net
     
@@ -462,10 +481,10 @@ if __name__ == '__main__':
         net.load_state_dict(torch.load(args.trained_model))
     else:
         state_dict=torch.load(args.trained_model,map_location='cpu')
-        state_dict_new = dict()
-        for key,value in list(state_dict.items()):
-            state_dict_new[key[7:]] = value
-        net.load_state_dict(state_dict_new)
+        #state_dict_new = dict()
+        #for key,value in list(state_dict.items()):
+         #   state_dict_new[key[7:]] = value
+        net.load_state_dict(state_dict)
     net.eval()
     print('Finished loading model!')
     # load data

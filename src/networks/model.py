@@ -215,10 +215,10 @@ class ResNet(nn.Module):
                 layer.eval()
 
     def forward(self, inputs):
-        img_batch = inputs
+        #img_batch = inputs
         scores_maps = list() 
         pred_cls = list()
-        x = self.conv1(img_batch)
+        x = self.conv1(inputs)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)

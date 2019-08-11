@@ -16,6 +16,7 @@ import argparse
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torch
+import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 sys.path.append(os.path.join(os.path.dirname(__file__),'../utils'))
 from detector import RetinanetDetector
@@ -56,7 +57,7 @@ class Retinanet_Test(object):
         if torch.cuda.is_available():
             self.Retinanet_model.load_state_dict(torch.load(load_path))
             self.Retinanet_model.cuda()
-            self.Detector.cuda()
+            cudnn.benchmark = True
         else: 
             weights = torch.load(load_path,map_location='cpu')
             #weights = self.rename_dict(weights)
@@ -164,12 +165,12 @@ class Retinanet_Test(object):
         img_input = torch.from_numpy(img_scale).permute(2, 0, 1)
         img_input = Variable(img_input.unsqueeze(0))
         if torch.cuda.is_available():
-            img_input.cuda()
+            img_input = img_input.cuda()
         t1=time.time()
         rectangles,conf_maps = self.inference(img_input)  # forward pass
         detections = rectangles.data.cpu().numpy()
         t2=time.time()
-        #print('consume:',t2-t1)
+        print('consume:',t2-t1)
         # scale each detection back up to the image
         detections = self.de_scale(detections,window[0],window[1],window[2],window[3],height,width)
         self.label_show(detections,frame)
@@ -217,13 +218,14 @@ class Retinanet_Test(object):
             tmp_hotmap.squeeze_(2)
             print('map max:',tmp_hotmap.data.max())
             hotmaps.append(tmp_hotmap.data.numpy())
+        print('hotmap num:',len(hotmaps))
         return hotmaps
 
     def display_hotmap(self,hotmaps):
         '''
         hotmaps: a list of hot map ,every shape is [1,h,w]
         '''       
-        fig, axes = plt.subplots(nrows=2, ncols=2, constrained_layout=True)
+        fig, axes = plt.subplots(nrows=2, ncols=3, constrained_layout=True)
         ax1 = axes[0,0]
         im1 = ax1.imshow(hotmaps[0])
         # We want to show all ticks...
@@ -249,7 +251,7 @@ class Retinanet_Test(object):
         #cb2 = fig.colorbar(im2)
         ax2.set_title('feature_4')
         #************************************************
-        ax3 = axes[1,0]
+        ax3 = axes[0,2]
         im3 = ax3.imshow(hotmaps[2])
         #cb3 = fig.colorbar(im3)
         ax3.set_title('feature_5')
@@ -261,10 +263,14 @@ class Retinanet_Test(object):
         while min_d < max_d:
             tick_d.append(min_d)
             min_d+=0.01
-        ax4 = axes[1,1]
+        ax4 = axes[1,0]
         im4 = ax4.imshow(hotmaps[3])
-        cb4 = fig.colorbar(im4,ticks=tick_d)
         ax4.set_title('feature_6')
+        cb4 = fig.colorbar(im4) #ticks=tick_d)
+        #***********************************************
+        ax5 = axes[1,1]
+        img5 = ax5.imshow(hotmaps[4])
+        ax5.set_title('feature_7')
         #fig.tight_layout()
         plt.savefig('hotmap.png')
         plt.show()
@@ -346,11 +352,11 @@ class Retinanet_Test(object):
                 # grab next frame
                 # update FPS counter
                 frame,odm_maps = self.test_img(img)
-                #hotmaps = self.get_hotmaps(odm_maps)
-                #self.display_hotmap(hotmaps)
+                hotmaps = self.get_hotmaps(odm_maps)
+                self.display_hotmap(hotmaps)
                 # keybindings for display
                 cv2.imshow('result',frame)
-                #cv2.imwrite('test1.jpg',frame)
+                cv2.imwrite('test1.jpg',frame)
                 key = cv2.waitKey(0) 
         else:
             print('please input the right img-path')
