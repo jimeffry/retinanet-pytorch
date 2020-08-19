@@ -12,6 +12,7 @@ import torch
 import cv2
 import numpy as np
 import random
+import random
 import torch.utils.data as u_data
 #from convert_to_pickle import label_show
 sys.path.append(os.path.join(os.path.dirname(__file__),'../configs'))
@@ -20,34 +21,33 @@ from config import cfgs
 
 class ReadDataset(u_data.Dataset): #data.Dataset
     """
-    VOC Detection Dataset Object
+    Detection Dataset Object
     """
-    def __init__(self):
-        self.voc_file = cfgs.voc_file
-        self.coco_file = cfgs.coco_file
-        self.img_size = cfgs.ImgSize
-        self.voc_dir = cfgs.voc_dir
-        self.coco_dir = cfgs.coco_dir
+    def __init__(self,imgdir,filein,mode='train'):
+        self.imgdir = imgdir
         self.ids = []
         self.annotations = []
-        self.load_txt()
-        self.idx = 0
+        self.load_txt(filein)
         self.total_num = self.__len__()
         self.shulf_num = list(range(self.total_num))
-        randm.shuffle(self.shulf_num)
+        random.shuffle(self.shulf_num)
+        self.rgb_mean = np.array([0.485, 0.456, 0.406])[np.newaxis, np.newaxis,:].astype('float32')
+        self.rgb_std = np.array([0.229, 0.224, 0.225])[np.newaxis, np.newaxis,:].astype('float32')
+        self._annopath = os.path.join('%s', 'Seglabels22', '%s.png')
+        self._imgpath = os.path.join('%s', 'train2017', '%s.jpg')
+        self.mode = mode
 
     def __getitem__(self, index):
-        im, gt,h,w,window = self.pull_item(index)
-        return im, gt,h,w,window
+        img,annot = self.pull_item(index)
+        return img,annot
 
     def __len__(self):
         return len(self.annotations)
 
-    def load_txt(self):
-        self.voc_r = open(self.voc_file,'r')
-        #self.coco_r = open(self.coco_file,'r')
-        voc_annotations = self.voc_r.readlines()
-        #coco_annotations = self.coco_r.readlines()
+    def load_txt(self,filein):
+        file_rd = open(filein,'r')
+        file_txt = file_rd.readlines()
+        '''
         for tmp in voc_annotations:
             tmp_splits = tmp.strip().split(',')
             img_path = os.path.join(self.voc_dir,tmp_splits[0])
@@ -58,18 +58,15 @@ class ReadDataset(u_data.Dataset): #data.Dataset
             bbox.insert(0,img_path)
             self.annotations.append(bbox)
         '''
-        for tmp in coco_annotations:
+        for tmp in file_txt:
             tmp_splits = tmp.strip().split(',')
-            img_path = os.path.join(self.coco_dir,tmp_splits[0])
+            # img_path = os.path.join(self.imgdir,tmp_splits[0])
+            self.ids.append((self.imgdir,tmp_splits[0].split('/')[-1][:-4]))
             bbox = map(float, tmp_splits[1:])
             if not isinstance(bbox,list):
                 bbox = list(bbox)
-            bbox.insert(0,img_path)
+            # bbox.insert(0,img_path)
             self.annotations.append(bbox)
-        '''
-    def close_txt(self):
-        self.voc_r.close()
-        self.coco_r.close()
 
     def pull_item(self, index):
         '''
@@ -77,54 +74,92 @@ class ReadDataset(u_data.Dataset): #data.Dataset
                 gt_boxes+label: box-(x1,y1,x2,y2)
                 label: dataset_class_num 
         '''
+        tmp_path = self._imgpath % (self.ids[index])
         tmp_annotation = self.annotations[index]
-        tmp_path = tmp_annotation[0]
+        # tmp_path = tmp_annotation[0]
         img_data = cv2.imread(tmp_path)
-        h,w = img_data.shape[:2]
-        img_data = img_data[:,:,::-1]
-        gt_box_label = np.array(tmp_annotation[1:],dtype=np.float32).reshape(-1,5)
-        #print(gt_box_label) 
-        img_data, window = self.re_scale(img_data)
-        img_data = self.normalize(img_data)
-        return torch.from_numpy(img_data).permute(2, 0, 1),gt_box_label,h,w,window
-    
-    def re_scale(self,img):
-        img_h, img_w = img.shape[:2]
-        ratio = max(img_h, img_w) / float(self.img_size)
-        new_h = int(img_h / ratio)
-        new_w = int(img_w / ratio)
-        ox = (self.img_size - new_w) // 2
-        oy = (self.img_size - new_h) // 2
-        scaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-        out = np.zeros((self.img_size, self.img_size, 3), dtype=np.uint8) 
-        out[oy:oy + new_h, ox:ox + new_w, :] = scaled
-        window = [ox,oy,new_w,new_h]
-        return out, window
-    
-    def normalize(self,img):
-        img = img / 255.0
-        img[:,:,0] -= cfgs.PIXEL_MEAN[0]
-        img[:,:,0] = img[:,:,0] / cfgs.PIXEL_NORM[0] 
-        img[:,:,1] -= cfgs.PIXEL_MEAN[1]
-        img[:,:,1] = img[:,:,1] / cfgs.PIXEL_NORM[1]
-        img[:,:,2] -= cfgs.PIXEL_MEAN[2]
-        img[:,:,2] = img[:,:,2] / cfgs.PIXEL_NORM[2]
-        return img.astype(np.float32)
+        img_data = cv2.cvtColor(img_data,cv2.COLOR_BGR2RGB)
+        gt_box_label = np.array(tmp_annotation,dtype=np.float32).reshape(-1,5)
+        img,gt = self.processimg(img_data,gt_box_label)
+        return torch.from_numpy(img).permute(2, 0, 1),gt
 
-    def descale(self,box,window,img_w,img_h):
-        ox,oy,new_w,new_h = window
-        xmin, ymin, xmax, ymax = box[:,:,:,1],box[:,:,:,2],box[:,:,:,3],box[:,:,:,4]
-        box[:,:,:,1] = (xmin - ox) / float(new_w) * img_w
-        box[:,:,:,2] = (ymin - oy) / float(new_h) * img_h
-        box[:,:,:,3] = (xmax - ox) / float(new_w) * img_w
-        box[:,:,:,4] = (ymax - oy) / float(new_h) * img_h
-        '''
-        box[:,:,:,1] = np.minimum(np.maximum(xmin * img_w,0),img_w)
-        box[:,:,:,2] = np.minimum(np.maximum(ymin * img_h,0),img_h)
-        box[:,:,:,3] = np.minimum(np.maximum(xmax * img_w,0),img_w)
-        box[:,:,:,4] = np.minimum(np.maximum(ymax * img_h,0),img_h)
-        '''
-        return box
+    def pull_image(self,index):
+        tmp_path = self._imgpath % (self.ids[index])
+        # tmp_annotation = self.annotations[index]
+        img_data = cv2.imread(tmp_path)
+        img_data = cv2.cvtColor(img_data,cv2.COLOR_BGR2RGB)
+        return img_data
+    
+    def processimg(self,img,gt):
+        if self.mode == 'train':
+            img,gt,_ = self.mirror(img,gt)
+        img,gt = self.resize_subtract_mean(img,gt)
+        return img,gt
+
+    def mirror(self,image, boxes,mask=None):
+        height, width, _ = image.shape
+        boxes_tmp = boxes.copy()
+        if random.randrange(2):
+            image = image[:, ::-1,:]
+            boxes[:, 0] = width - boxes_tmp[:, 2] -1
+            boxes[:,2] = width - boxes_tmp[:,0] -1
+        if mask is not None:
+            mask = mask[:,::-1]
+        return image,boxes,mask
+    
+    def rescale(self,image,boxes_f,height,width):
+        boxes_f[:,0] = boxes_f[:,0] / float(width) #* cfgs.IMGWidth
+        boxes_f[:,2] = boxes_f[:,2] / float(width) #* cfgs.IMGWidth
+        boxes_f[:,1] = boxes_f[:,1] / float(height) #* cfgs.IMGHeight
+        boxes_f[:,3] = boxes_f[:,3] / float(height) #* cfgs.IMGHeight
+        image = cv2.resize(image,(cfgs.IMGWidth,cfgs.IMGHeight))
+        return image,boxes_f
+    
+    def resize_subtract_mean(self,image,gt):
+        # if self.mode =='train':
+        h,w = image.shape[:2]
+        if h < cfgs.IMGHeight or w < cfgs.IMGWidth:
+            image,gt = self.rescale(image,gt,h,w)
+        else:
+            image,gt = self.cropimg(image,gt)
+        image = image.astype(np.float32)
+        image = image / 255.0
+        image -= self.rgb_mean
+        image = image / self.rgb_std
+        return image,gt
+
+    def cropimg(self,image,gt_box):
+        h,w = image.shape[:2]
+        while 1:
+            dh,dw = int(random.random()*(h-cfgs.IMGHeight)),int(random.random()*(w-cfgs.IMGWidth))
+            nx1 = dw
+            nx2 = dw+cfgs.IMGWidth
+            ny1 = dh
+            ny2 = dh+cfgs.IMGHeight
+            img = image[ny1:ny2,nx1:nx2,:]
+            # gt = gt[dh:(dh+cfgs.IMGHeight),dw:(dw+cfgs.IMGWidth)]
+            gt = gt_box.copy()
+            keep_idx = np.where(gt[:,2]>nx1)
+            gt = gt[keep_idx]
+            keep_idx = np.where(gt[:,0]<nx2)
+            gt = gt[keep_idx]
+            keep_idx = np.where(gt[:,3]>ny1)
+            gt = gt[keep_idx]
+            keep_idx = np.where(gt[:,1]<ny2)
+            gt = gt[keep_idx]
+            gt[:,0] = np.clip(gt[:,0],nx1,nx2)-nx1
+            gt[:,2] = np.clip(gt[:,2],nx1,nx2)-nx1
+            gt[:,1] = np.clip(gt[:,1],ny1,ny2)-ny1
+            gt[:,3] = np.clip(gt[:,3],ny1,ny2)-ny1
+            gt[:,0] = gt[:,0] / float(cfgs.IMGWidth)
+            gt[:,2] = gt[:,2] / float(cfgs.IMGWidth)
+            gt[:,1] = gt[:,1] / float(cfgs.IMGHeight)
+            gt[:,3] = gt[:,3] / float(cfgs.IMGHeight)
+            if len(gt)>0:
+                break
+        return img,gt
+
+
 
 if __name__=='__main__':
     test_d = ReadDataset()

@@ -161,15 +161,15 @@ class ReadDataset(Dataset):
         voc_annotations = self.voc_r.readlines()
         coco_annotations = self.coco_r.readlines()
 
-        for tmp in voc_annotations:
-            tmp_splits = tmp.strip().split(',')
-            img_path = os.path.join(self.voc_dir,tmp_splits[0])
-            self.ids.append((self.voc_dir,tmp_splits[0].split('/')[-1][:-4]))
-            bbox = map(float, tmp_splits[1:])
-            if not isinstance(bbox,list):
-                bbox = list(bbox)
-            bbox.insert(0,img_path)
-            self.annotations.append(bbox)
+        # for tmp in voc_annotations:
+        #     tmp_splits = tmp.strip().split(',')
+        #     img_path = os.path.join(self.voc_dir,tmp_splits[0])
+        #     self.ids.append((self.voc_dir,tmp_splits[0].split('/')[-1][:-4]))
+        #     bbox = map(float, tmp_splits[1:])
+        #     if not isinstance(bbox,list):
+        #         bbox = list(bbox)
+        #     bbox.insert(0,img_path)
+        #     self.annotations.append(bbox)
         
         for tmp in coco_annotations:
             tmp_splits = tmp.strip().split(',')
@@ -223,123 +223,6 @@ class ReadDataset(Dataset):
         return float(image.width) / float(image.height)
 
 
-class TestDataset(Dataset):
-    """test dataset."""
-    def __init__(self):
-        self.voc_file = cfgs.voc_file
-        self.coco_file = cfgs.coco_file
-        self.img_size = cfgs.ImgSize
-        self.voc_dir = cfgs.voc_dir
-        self.coco_dir = cfgs.coco_dir
-        self.ids = []
-        self.annotations = []
-        self.load_txt()
-        self.idx = 0
-        self.total_num = self.__len__()
-        self.shulf_num = list(range(self.total_num))
-
-    def __getitem__(self, index):
-        im, gt,_,_ ,_ = self.pull_item(index)
-        return im, gt
-
-    def __len__(self):
-        return len(self.annotations)
-
-    def load_txt(self):
-        self.voc_r = open(self.voc_file,'r')
-        #self.coco_r = open(self.coco_file,'r')
-        voc_annotations = self.voc_r.readlines()
-        #coco_annotations = self.coco_r.readlines()
-        for tmp in voc_annotations:
-            tmp_splits = tmp.strip().split(',')
-            img_path = os.path.join(self.voc_dir,tmp_splits[0])
-            self.ids.append((self.voc_dir,tmp_splits[0].split('/')[-1][:-4]))
-            bbox = map(float, tmp_splits[1:])
-            if not isinstance(bbox,list):
-                bbox = list(bbox)
-            bbox.insert(0,img_path)
-            self.annotations.append(bbox)
-        '''
-        for tmp in coco_annotations:
-            tmp_splits = tmp.strip().split(',')
-            img_path = os.path.join(self.coco_dir,tmp_splits[0])
-            bbox = map(float, tmp_splits[1:])
-            if not isinstance(bbox,list):
-                bbox = list(bbox)
-            bbox.insert(0,img_path)
-            self.annotations.append(bbox)
-        '''
-    def close_txt(self):
-        self.voc_r.close()
-        self.coco_r.close()
-
-    def pull_item(self, index):
-        '''
-        output: img - shape(c,h,w)
-                gt_boxes+label: box-(x1,y1,x2,y2)
-                label: dataset_class_num 
-        '''
-        tmp_annotation = self.annotations[index]
-        tmp_path = tmp_annotation[0]
-        img_data = cv2.imread(tmp_path)
-        img_org = img_data
-        h,w = img_data.shape[:2]
-        img_data = img_data[:,:,::-1]
-        gt_box_label = np.array(tmp_annotation[1:],dtype=np.float32).reshape(-1,5)
-        #print(gt_box_label) 
-        img_data, window = self.re_scale(img_data,gt_box_label)
-        img_data = self.normalize(img_data)
-        return torch.from_numpy(img_data).permute(2, 0, 1),gt_box_label,h,w,window,img_org
-        #return img_data,gt_box_label
-    
-    def re_scale(self,img, boxes):
-        img_h, img_w = img.shape[:2]
-        boxes = np.array(boxes,dtype=np.float32)
-        ratio = max(img_h, img_w) / float(self.img_size)
-        new_h = int(img_h / ratio)
-        new_w = int(img_w / ratio)
-        ox = (self.img_size - new_w) // 2
-        oy = (self.img_size - new_h) // 2
-        scaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-        out = np.zeros((self.img_size, self.img_size, 3), dtype=np.uint8) 
-        out[oy:oy + new_h, ox:ox + new_w, :] = scaled
-        '''
-        boxes[:,0] = boxes[:,0] * new_w + ox
-        boxes[:,1] = boxes[:,1] * new_h + oy
-        boxes[:,2] = boxes[:,2] * new_w + ox 
-        boxes[:,3] = boxes[:,3] * new_h + oy 
-        '''
-        return out, [ox,oy,new_w,new_h]
-
-    def de_scale(self,box,window,img_w,img_h):
-        xmin, ymin, xmax, ymax = box[:,:,:,1],box[:,:,:,2],box[:,:,:,3],box[:,:,:,4]
-        ox,oy,new_w,new_h = window
-        box[:,:,:,1] = (xmin - ox) / float(new_w) * img_w
-        box[:,:,:,2] = (ymin - oy) / float(new_h) * img_h
-        box[:,:,:,3] = (xmax - ox) / float(new_w) * img_w
-        box[:,:,:,4] = (ymax - oy) / float(new_h) * img_h
-        return box
-    
-    def normalize(self,img):
-        
-        img = img / 255.0
-        img[:,:,0] -= cfgs.PIXEL_MEAN[0]
-        img[:,:,0] = img[:,:,0] / cfgs.PIXEL_NORM[0] 
-        img[:,:,1] -= cfgs.PIXEL_MEAN[1]
-        img[:,:,1] = img[:,:,1] / cfgs.PIXEL_NORM[1]
-        img[:,:,2] -= cfgs.PIXEL_MEAN[2]
-        img[:,:,2] = img[:,:,2] / cfgs.PIXEL_NORM[2]
-        
-        return img.astype(np.float32)
-    
-    def num_classes(self):
-        return 8
-
-    def image_aspect_ratio(self,idx):
-        tmp_annotation = self.annotations[idx]
-        img_path = tmp_annotation[0]
-        image = Image.open(img_path)
-        return float(image.width) / float(image.height)
 
 class CSVDataset(Dataset):
     """CSV dataset."""
@@ -522,7 +405,7 @@ def collater(data):
 
     imgs = [s['img'] for s in data]
     annots = [s['annot'] for s in data]
-    scales = [s['scale'] for s in data]
+    # scales = [s['scale'] for s in data]
         
     widths = [int(s.shape[0]) for s in imgs]
     heights = [int(s.shape[1]) for s in imgs]
@@ -554,7 +437,7 @@ def collater(data):
 
     padded_imgs = padded_imgs.permute(0, 3, 1, 2)
 
-    return {'img': padded_imgs, 'annot': annot_padded, 'scale': scales}
+    return {'img': padded_imgs, 'annot': annot_padded}
 
 class Resizer(object):
     """Convert ndarrays in sample to Tensors."""

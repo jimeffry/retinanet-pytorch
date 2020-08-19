@@ -19,16 +19,14 @@ from torch.autograd import Variable
 #from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
 #from data import VOC_CLASSES as labelmap
 sys.path.append(os.path.join(os.path.dirname(__file__),'../../utils'))
-from detector import RetinanetDetector
 from anchors import Anchors
 sys.path.append(os.path.join(os.path.dirname(__file__),'../../networks'))
-from model import resnet50
-#from refinedet_train_test import build_refinedet
-#from refinedet_resnet import build_refinedet
+from retinamask import RetinaMask
+from detector import RetinanetDetector
 sys.path.append(os.path.join(os.path.dirname(__file__),'../../configs'))
 from config import cfgs
 sys.path.append(os.path.join(os.path.dirname(__file__),'../../prepare_data'))
-from dataloader import ReadDataset,TestDataset
+from dataloader import ReadDataset
 
 if sys.version_info[0] == 2:
     import xml.etree.cElementTree as ET
@@ -497,7 +495,7 @@ if __name__ == '__main__':
         cudnn.benchmark = True
     get_anchor = Anchors()
     img_batch = torch.ones((1,3,cfgs.ImgSize,cfgs.ImgSize))
-    anchors = get_anchor(img_batch)
+    anchors = get_anchor([640,640])
     print('anchor',anchors.data.size())
     # evaluation
     test_net(args.save_folder, net,Detector, args.cuda, dataset, args.top_k, anchors,

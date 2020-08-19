@@ -109,3 +109,39 @@ def pth_nms(boxes, scores=None,overlap=0.5, top_k=500):
         # keep only elements with an IoU <= overlap
         idx = idx[IoU.le(overlap)]
     return keep,count
+
+def nms_py(boxes, scores, threshold=0.7,topk=200,mode='Union'):
+    pick = []
+    count = 0
+    if len(boxes)==0:
+        return pick,count
+    # print('score',np.shape(scores))
+    # boxes = boxes.detach().numpy().copy()
+    # scores = scores.detach().numpy().copy()
+    x1 = boxes[:,0]
+    y1 = boxes[:,1]
+    x2 = boxes[:,2]
+    y2 = boxes[:,3]
+    # s  = np.array(scores)
+    area = np.multiply(x2-x1+1, y2-y1+1)
+    ids = np.array(scores.argsort())
+    ids = ids[-topk:]
+    #I[-1] have hightest prob score, I[0:-1]->others
+    while len(ids)>0:
+        pick.append(ids[-1])
+        xx1 = np.maximum(x1[ids[-1]], x1[ids[0:-1]]) 
+        yy1 = np.maximum(y1[ids[-1]], y1[ids[0:-1]])
+        xx2 = np.minimum(x2[ids[-1]], x2[ids[0:-1]])
+        yy2 = np.minimum(y2[ids[-1]], y2[ids[0:-1]])
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        if mode == 'Min':
+            iou = inter / np.minimum(area[ids[-1]], area[ids[0:-1]])
+        else:
+            iou = inter / (area[ids[-1]] + area[ids[0:-1]] - inter)
+        count +=1
+        ids = ids[np.where(iou<threshold)[0]]
+        # print(len(ids))
+    #result_rectangle = boxes[pick].tolist()
+    return pick,count

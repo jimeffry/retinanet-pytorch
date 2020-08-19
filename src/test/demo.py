@@ -19,47 +19,47 @@ import torch
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 sys.path.append(os.path.join(os.path.dirname(__file__),'../utils'))
-from detector import RetinanetDetector
 from anchors import Anchors
 sys.path.append(os.path.join(os.path.dirname(__file__),'../networks'))
-from model import resnet50
+from retinamask import RetinaMask
+from detector import RetinanetDetector
 sys.path.append(os.path.join(os.path.dirname(__file__),'../configs'))
 from config import cfgs
 
+def str2bool(rawstr):
+    return rawstr.lower() in ['yes','true','t','1']
+
 def parms():
     parser = argparse.ArgumentParser(description='refinedet test')
-    parser.add_argument('--weights', default='',
-                        type=str, help='Trained state_dict file path')
-    parser.add_argument('--cuda', default=False, type=bool,
-                        help='Use cuda in live demo')
+    parser.add_argument('--weights', default='',type=str, help='Trained state_dict file path')
+    parser.add_argument('--cuda', default=False, type=str2bool,help='Use cuda in live demo')
     parser.add_argument('--img_path',type=str,default='',help='')
-    parser.add_argument('--load_num',type=int,default=0,help='load model num')
+    parser.add_argument('--modelpath',type=str,default=None,help='load model path')
     parser.add_argument('--img_dir',type=str,default='',help='')
     parser.add_argument('--save_dir',type=str,default='',help='')
     return parser.parse_args()
 
 class Retinanet_Test(object):
     def __init__(self,args):
-        self.img_size = cfgs.ImgSize
+        self.imgh = cfgs.IMGHeight
+        self.imgw  = cfgs.IMGWidth
         self.img_dir = args.img_dir
         self.save_dir = args.save_dir
-        self.build_net()
-        self.load_model(args.load_num)
+        self.use_gpu = args.cuda
+        self.rgb_mean = np.array([0.485, 0.456, 0.406])[np.newaxis, np.newaxis,:].astype('float32')
+        self.rgb_std = np.array([0.229, 0.224, 0.225])[np.newaxis, np.newaxis,:].astype('float32')
+        self.build_net(args.modelpath)
         self.laod_anchor()
     
-    def build_net(self):
-        self.Retinanet_model = resnet50(cfgs.ClsNum)
+    def build_net(self,load_path):
+        self.Retinanet_model = RetinaMask(cfgs.CLSNUM,'test')
         self.Detector = RetinanetDetector()
-
-    def load_model(self,load_num):
-        load_path = "%s/%s_%s.pth" %(cfgs.model_dir,cfgs.ModelPrefix,load_num)
         print('Resuming training, loading {}...'.format(load_path))
-        if torch.cuda.is_available():
-            self.Retinanet_model.load_state_dict(torch.load(load_path))
-            self.Retinanet_model.cuda()
-            cudnn.benchmark = True
-        else: 
-            weights = torch.load(load_path,map_location='cpu')
+        if self.use_gpu:
+            device = torch.device('cuda')
+        else:
+            device = torch.device('cpu')
+            weights = torch.load(load_path,map_location=device)
             #weights = self.rename_dict(weights)
             self.Retinanet_model.load_state_dict(weights)
         self.Retinanet_model.eval()
@@ -73,77 +73,78 @@ class Retinanet_Test(object):
 
     def laod_anchor(self):
         get_anchor = Anchors()
-        img_batch = torch.ones((1,3,self.img_size,self.img_size))
-        self.anchors = get_anchor(img_batch)
-        if torch.cuda.is_available():
+        # img_batch = torch.ones((1,3,self.img_size,self.img_size))
+        self.anchors = get_anchor(self.imgh,self.imgw)
+        if self.use_gpu:
             self.anchors = self.anchors.cuda()
     
-    def inference(self,input_img):
+    def inference(self,img):
         '''
         input_img: [batch,c,h,w]
         '''
-        pred_cls, pred_bbox,conf_maps = self.Retinanet_model(input_img)
+        t1 = time.time()
+        input_img = img.copy()
+        batch_imgs,batch_shapes = self.preprocess([input_img])
+        if self.use_gpu:
+            batch_imgs = batch_imgs.cuda()
+        pred_cls, pred_bbox,conf_maps = self.Retinanet_model(batch_imgs)
         rectangles = self.Detector(self.anchors, pred_bbox, pred_cls)
-        return rectangles,conf_maps
-
-    def re_scale(self,img):
-        img_h, img_w = img.shape[:2]
-        ratio = max(img_h, img_w) / float(self.img_size)
-        new_h = int(img_h / ratio)
-        new_w = int(img_w / ratio)
-        ox = (self.img_size - new_w) // 2
-        oy = (self.img_size - new_h) // 2
-        scaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-        out = np.zeros((self.img_size, self.img_size, 3), dtype=np.uint8) 
-        out[oy:oy + new_h, ox:ox + new_w, :] = scaled
-        return out.astype(np.float32),[new_h,new_w,oy,ox]
-
-    def de_scale(self,box,new_h,new_w,oy,ox,img_h,img_w):
-        xmin, ymin, xmax, ymax = box[:,:,:,1],box[:,:,:,2],box[:,:,:,3],box[:,:,:,4]
-        
-        # xmin = np.maximum(np.minimum(xmin*self.img_size,self.img_size),0)
-        # xmax = np.maximum(np.minimum(xmax*self.img_size,self.img_size),0)
-        # ymin = np.maximum(np.minimum(ymin*self.img_size,self.img_size),0)
-        # ymax = np.maximum(np.minimum(ymax*self.img_size,self.img_size),0)
-        box[:,:,:,1] = (xmin - ox) / float(new_w) * img_w
-        box[:,:,:,2] = (ymin - oy) / float(new_h) * img_h
-        box[:,:,:,3] = (xmax - ox) / float(new_w) * img_w
-        box[:,:,:,4] = (ymax - oy) / float(new_h) * img_h
-        '''
-        box[:,:,:,1] = np.minimum(np.maximum(xmin * img_w,0),img_w)
-        box[:,:,:,2] = np.minimum(np.maximum(ymin * img_h,0),img_h)
-        box[:,:,:,3] = np.minimum(np.maximum(xmax * img_w,0),img_w)
-        box[:,:,:,4] = np.minimum(np.maximum(ymax * img_h,0),img_h)
-        '''
-        return box
+        detections = rectangles.data.cpu().numpy()
+        t2=time.time()
+        print('consume:',t2-t1)
+        # scale each detection back up to the image
+        self.label_show(detections,[img],batch_shapes)
+        return img,conf_maps  #rectangles,conf_maps
     
-    def normalize(self,img):
-        img = img / 255.0
-        img[:,:,0] -= cfgs.PIXEL_MEAN[0]
-        img[:,:,0] = img[:,:,0] / cfgs.PIXEL_NORM[0] 
-        img[:,:,1] -= cfgs.PIXEL_MEAN[1]
-        img[:,:,1] = img[:,:,1] / cfgs.PIXEL_NORM[1]
-        img[:,:,2] -= cfgs.PIXEL_MEAN[2]
-        img[:,:,2] = img[:,:,2] / cfgs.PIXEL_NORM[2]
-        return img.astype(np.float32)
+    def preprocess(self,imglist):
+        '''
+        img: bgr --> rgb
+        '''
+        out_list = []
+        shape_list = []
+        for image in imglist:
+            image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
+            h,w = image.shape[:2]
+            image = cv2.resize(image,(self.imgw,self.imgh))
+            image = image.astype(np.float32)
+            image = image / 255.0
+            image -= self.rgb_mean
+            image = image / self.rgb_std
+            image = np.transpose(image,(2,0,1))
+            out_list.append(image)
+            shape_list.append([h,w])
+        out_list = np.array(out_list)
+        return torch.from_numpy(out_list),shape_list
 
-    def label_show(self,boxes,frame):
-        height,width = frame.shape[:2]
-        scale = np.array([width, height, width, height])
+    def label_show(self,boxes,framelist,shapelist):
         COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
         FONT = cv2.FONT_HERSHEY_SIMPLEX
-        for i in range(0,boxes.shape[1]):
-            j = 0
-            while boxes[0, i, j, 0] >= cfgs.score_threshold:
-                pt = boxes[0, i, j, 1:] #* scale
-                #print(pt)
-                cv2.rectangle(frame,
-                              (int(pt[0]), int(pt[1])),
-                              (int(pt[2]), int(pt[3])),
-                              (0,255,0), 2)
-                cv2.putText(frame, cfgs.shownames[i], (int(pt[0]), int(pt[1])),
-                            FONT, 1, (255, 255, 255), 1, 4)#cv2.LINE_AA)
-                j += 1
+        for indx in range(len(framelist)):
+            frame = framelist[indx]
+            tmph,tmpw = shapelist[indx]
+            for i in range(1,boxes.shape[1]):
+                j = 0
+                while boxes[indx, i, j, 0] >= cfgs.conf_threshold:
+                    score = boxes[indx,i,j,0]
+                    pt = boxes[indx, i, j, 1:] #* scale
+                    #print(pt)
+                    pt[0] = pt[0]/cfgs.IMGWidth * tmpw
+                    pt[2] = pt[2]/cfgs.IMGWidth * tmpw
+                    pt[1] = pt[1]/cfgs.IMGHeight * tmph
+                    pt[3] = pt[3]/cfgs.IMGHeight * tmph
+                    min_re = min(pt[2]-pt[0],pt[3]-pt[1])
+                    txt = str(score) #cfgs.shownames[i]
+                    if min_re <16:
+                        thres = 0.35
+                        font_scale = int(1)
+                    else:
+                        thres = 0.4
+                        font_scale = int((pt[2]-pt[0])*0.01)
+                    if score >=thres:
+                        cv2.rectangle(frame,(int(pt[0]), int(pt[1])),(int(pt[2]), int(pt[3])),(0,255,0), 2)
+                        cv2.putText(frame,txt, (int(pt[0]), int(pt[1])),
+                                FONT,0.5, (255, 255, 255), 1, 4)#cv2.LINE_AA)
+                    j += 1
     def label_show_org(self,scores, cls_ids, bboxes,img):
         idxs = np.where(scores>cfgs.score_threshold)
         for j in range(idxs[0].shape[0]):
@@ -158,45 +159,6 @@ class Retinanet_Test(object):
             cv2.rectangle(img, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=2)
             #print(label_name)
 
-    def test_img(self,frame):
-        height, width = frame.shape[:2]
-        img_scale, window = self.re_scale(frame.copy())
-        img_scale = self.normalize(img_scale)
-        img_input = torch.from_numpy(img_scale).permute(2, 0, 1)
-        img_input = Variable(img_input.unsqueeze(0))
-        if torch.cuda.is_available():
-            img_input = img_input.cuda()
-        t1=time.time()
-        rectangles,conf_maps = self.inference(img_input)  # forward pass
-        detections = rectangles.data.cpu().numpy()
-        t2=time.time()
-        print('consume:',t2-t1)
-        # scale each detection back up to the image
-        detections = self.de_scale(detections,window[0],window[1],window[2],window[3],height,width)
-        self.label_show(detections,frame)
-        return frame,conf_maps
-
-    def test_img_org(self,frame):
-        img_h,img_w = frame.shape[:2]
-        img_scale, window = self.re_scale(frame.copy())
-        img_scale = self.normalize(img_scale)
-        img_input = torch.from_numpy(img_scale).permute(2, 0, 1)
-        img_input = Variable(img_input.unsqueeze(0))
-        if torch.cuda.is_available():
-            img_input.cuda()
-        t1=time.time()
-        outputs,conf_maps = self.inference(img_input)  # forward pass
-        scores, class_ids, box = outputs
-        #print('Elapsed time: {}'.format(time.time()-t1))
-        xmin, ymin, xmax, ymax = box[:,0],box[:,1],box[:,2],box[:,3]
-        new_h,new_w,oy,ox = window[0],window[1],window[2],window[3]
-        box[:,0] = (xmin - ox) / float(new_w) * img_w
-        box[:,1] = (ymin - oy) / float(new_h) * img_h
-        box[:,2] = (xmax - ox) / float(new_w) * img_w
-        box[:,3] = (ymax - oy) / float(new_h) * img_h
-        self.label_show_org(scores,class_ids,box,frame)
-        return frame,conf_maps
-
     def get_hotmaps(self,conf_maps):
         '''
         conf_maps: feature_pyramid maps for classification
@@ -204,7 +166,7 @@ class Retinanet_Test(object):
         hotmaps = []
         for tmp_map in conf_maps:
             batch,h,w,c = tmp_map.size()
-            tmp_map = tmp_map.view(batch,h,w,-1,cfgs.ClsNum)
+            tmp_map = tmp_map.view(batch,h,w,-1,cfgs.CLSNUM)
             tmp_map = tmp_map[0]
             tmp_map_soft = torch.nn.functional.softmax(tmp_map,dim=3)
             cls_mask = torch.argmax(tmp_map_soft,dim=3,keepdim=True)
@@ -279,9 +241,9 @@ class Retinanet_Test(object):
         print(imgpath)
         if os.path.isdir(imgpath):
             img_paths = glob.glob(os.path.join(imgpath,'*'))
-            save_dir = os.path.join(imgpath,'test')
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
+            # save_dir = os.path.join(imgpath,'test')
+            # if not os.path.exists(save_dir):
+                # os.makedirs(save_dir)
             for idx,tmp in enumerate(img_paths):
                 if not os.path.isfile(tmp):
                     continue
@@ -289,11 +251,11 @@ class Retinanet_Test(object):
                 if img is None:
                     print('None',tmp)
                     continue
-                frame,_ = self.test_img(img)
+                frame,_ = self.inference(img)
                 cv2.imshow('result',frame)
-                cv2.waitKey(100)
-                savepath = os.path.join(save_dir,'test_%d.jpg' % idx)
-                cv2.imwrite(savepath,frame)
+                cv2.waitKey(0)
+                # savepath = os.path.join(save_dir,'test_%d.jpg' % idx)
+                # cv2.imwrite(savepath,frame)
         elif os.path.isfile(imgpath) and imgpath.endswith('txt'):
             if not os.path.exists(self.save_dir):
                 os.makedirs(self.save_dir)
@@ -351,12 +313,12 @@ class Retinanet_Test(object):
             if img is not None:
                 # grab next frame
                 # update FPS counter
-                frame,odm_maps = self.test_img(img)
-                hotmaps = self.get_hotmaps(odm_maps)
-                self.display_hotmap(hotmaps)
+                frame,odm_maps = self.inference(img)
+                # hotmaps = self.get_hotmaps(odm_maps)
+                # self.display_hotmap(hotmaps)
                 # keybindings for display
-                cv2.imshow('result',frame)
-                cv2.imwrite('test1.jpg',frame)
+                cv2.imshow('result',img)
+                cv2.imwrite('test1.jpg',img)
                 key = cv2.waitKey(0) 
         else:
             print('please input the right img-path')
