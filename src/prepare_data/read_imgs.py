@@ -12,7 +12,6 @@ import torch
 import cv2
 import numpy as np
 import random
-import random
 import torch.utils.data as u_data
 #from convert_to_pickle import label_show
 sys.path.append(os.path.join(os.path.dirname(__file__),'../configs'))
