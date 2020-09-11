@@ -36,7 +36,7 @@ def parms():
     parser.add_argument('--img_path',type=str,default='',help='')
     parser.add_argument('--modelpath',type=str,default=None,help='load model path')
     parser.add_argument('--img_dir',type=str,default='',help='')
-    parser.add_argument('--save_dir',type=str,default='',help='')
+    parser.add_argument('--save_dir',type=str,default=None,help='')
     return parser.parse_args()
 
 class Retinanet_Test(object):
@@ -50,6 +50,9 @@ class Retinanet_Test(object):
         self.rgb_std = np.array([0.229, 0.224, 0.225])[np.newaxis, np.newaxis,:].astype('float32')
         self.build_net(args.modelpath)
         self.laod_anchor()
+        if self.save_dir is not None:
+            if not os.path.exists(self.save_dir):
+                os.makedirs(self.save_dir)
     
     def build_net(self,load_path):
         self.Retinanet_model = RetinaMask(cfgs.CLSNUM,'test')
@@ -119,11 +122,15 @@ class Retinanet_Test(object):
     def label_show(self,boxes,framelist,shapelist):
         COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
         FONT = cv2.FONT_HERSHEY_SIMPLEX
+        thresh_list = np.ones([9])*0.85
+        thresh_list[1] = 0.86
         for indx in range(len(framelist)):
             frame = framelist[indx]
+            imgorg = frame.copy()
             tmph,tmpw = shapelist[indx]
             for i in range(1,boxes.shape[1]):
                 j = 0
+                tmp_cnt = 0
                 while boxes[indx, i, j, 0] >= cfgs.conf_threshold:
                     score = boxes[indx,i,j,0]
                     pt = boxes[indx, i, j, 1:] #* scale
@@ -133,17 +140,22 @@ class Retinanet_Test(object):
                     pt[1] = pt[1]/cfgs.IMGHeight * tmph
                     pt[3] = pt[3]/cfgs.IMGHeight * tmph
                     min_re = min(pt[2]-pt[0],pt[3]-pt[1])
-                    txt = str(score) #cfgs.shownames[i]
-                    if min_re <16:
-                        thres = 0.35
+                    txt = "%.2f" % score #cfgs.shownames[i]
+                    if min_re <20:
+                        thres = thresh_list[i]
                         font_scale = int(1)
                     else:
-                        thres = 0.4
+                        thres = 0.85
                         font_scale = int((pt[2]-pt[0])*0.01)
                     if score >=thres:
-                        cv2.rectangle(frame,(int(pt[0]), int(pt[1])),(int(pt[2]), int(pt[3])),(0,255,0), 2)
-                        cv2.putText(frame,txt, (int(pt[0]), int(pt[1])),
-                                FONT,0.5, (255, 255, 255), 1, 4)#cv2.LINE_AA)
+                        x1,y1,x2,y2= int(pt[0]),int(pt[1]),int(pt[2]),int(pt[3])
+                        cv2.rectangle(frame,(x1,y1),(x2,y2),(0,255,0), 2)
+                        cv2.putText(frame,txt, (int(pt[0]), int(pt[1])),FONT,0.5, (255, 255, 255), 1, 4)#cv2.LINE_AA)
+                        savename = cfgs.shownames[i]+"_"+str(tmp_cnt)+'.jpg'
+                        savepath = os.path.join(self.save_dir,savename)
+                        tmpimg = imgorg[y1:y2+1,x1:x2+1,:]
+                        cv2.imwrite(savepath,tmpimg)
+                        tmp_cnt+=1
                     j += 1
     def label_show_org(self,scores, cls_ids, bboxes,img):
         idxs = np.where(scores>cfgs.score_threshold)
@@ -257,13 +269,10 @@ class Retinanet_Test(object):
                 # savepath = os.path.join(save_dir,'test_%d.jpg' % idx)
                 # cv2.imwrite(savepath,frame)
         elif os.path.isfile(imgpath) and imgpath.endswith('txt'):
-            if not os.path.exists(self.save_dir):
-                os.makedirs(self.save_dir)
             f_r = open(imgpath,'r')
             file_cnts = f_r.readlines()
             for j in tqdm(range(len(file_cnts))):
                 tmp_file = file_cnts[j].strip()
-                #tmp_file = file_cnts[j].strip()+'.jpg'
                 tmp_splits = tmp_file.split(',')
                 tmp_file = tmp_splits[0] #.split('/')[-1]
                 gt_box = map(float,tmp_splits[1:])
@@ -275,9 +284,9 @@ class Retinanet_Test(object):
                     continue
                 img = cv2.imread(tmp_path) 
                 if img is None:
-                    print('None',tmp)
+                    print('None',tmp_file)
                     continue
-                #frame,_ = self.test_img(img)                
+                frame,_ = self.inference(img)                
                 for idx in range(gt_box.shape[0]):
                     pt = gt_box[idx,:4]
                     i = int(gt_box[idx,4])
@@ -285,9 +294,9 @@ class Retinanet_Test(object):
                                 (int(pt[0]), int(pt[1])),
                                 (int(pt[2]), int(pt[3])),
                                 (0,0,255), 2) 
-                    cv2.putText(img, cfgs.VOCDataNames[i], (int(pt[0]), int(pt[1])),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 1, 4)#cv2.LINE_AA)
-                cv2.imshow('result',img)
+                #     cv2.putText(img, cfgs.VOCDataNames[i], (int(pt[0]), int(pt[1])),
+                #             cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 1, 4)#cv2.LINE_AA)
+                cv2.imshow('result',frame)
                 cv2.waitKey(0)               
                 #savepath = os.path.join(self.save_dir,save_name)
                 #cv2.imwrite(savepath,frame)
@@ -317,8 +326,8 @@ class Retinanet_Test(object):
                 # hotmaps = self.get_hotmaps(odm_maps)
                 # self.display_hotmap(hotmaps)
                 # keybindings for display
-                cv2.imshow('result',img)
-                cv2.imwrite('test1.jpg',img)
+                cv2.imshow('result',frame)
+                # cv2.imwrite('test1.jpg',img)
                 key = cv2.waitKey(0) 
         else:
             print('please input the right img-path')

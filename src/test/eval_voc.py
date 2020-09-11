@@ -106,8 +106,8 @@ def test_net(net,detector,priors,dataset,use_cuda,train_mode,args):
     all_boxes = [[[] for _ in range(num_images)]
                  for _ in range(len(labelmap)+1)]
     # rgb_mean = np.array([123.,117.,104.])[np.newaxis, np.newaxis,:].astype('float32')
-    self.rgb_mean = np.array([0.485, 0.456, 0.406])[np.newaxis, np.newaxis,:].astype('float32')
-    self.rgb_std = np.array([0.229, 0.224, 0.225])[np.newaxis, np.newaxis,:].astype('float32')
+    rgb_mean = np.array([0.485, 0.456, 0.406])[np.newaxis, np.newaxis,:].astype('float32')
+    rgb_std = np.array([0.229, 0.224, 0.225])[np.newaxis, np.newaxis,:].astype('float32')
     print('test all box:',np.shape(all_boxes))
     # build save dir
     output_dir = save_folder

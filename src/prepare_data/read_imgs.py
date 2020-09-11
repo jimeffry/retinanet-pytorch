@@ -12,6 +12,7 @@ import torch
 import cv2
 import numpy as np
 import random
+import random
 import torch.utils.data as u_data
 #from convert_to_pickle import label_show
 sys.path.append(os.path.join(os.path.dirname(__file__),'../configs'))
@@ -80,6 +81,7 @@ class ReadDataset(u_data.Dataset): #data.Dataset
         img_data = cv2.cvtColor(img_data,cv2.COLOR_BGR2RGB)
         gt_box_label = np.array(tmp_annotation,dtype=np.float32).reshape(-1,5)
         img,gt = self.processimg(img_data,gt_box_label)
+        #print(gt[:,-1])
         return torch.from_numpy(img).permute(2, 0, 1),gt
 
     def pull_image(self,index):
@@ -107,11 +109,15 @@ class ReadDataset(u_data.Dataset): #data.Dataset
         return image,boxes,mask
     
     def rescale(self,image,boxes_f,height,width):
-        boxes_f[:,0] = boxes_f[:,0] / float(width) #* cfgs.IMGWidth
-        boxes_f[:,2] = boxes_f[:,2] / float(width) #* cfgs.IMGWidth
-        boxes_f[:,1] = boxes_f[:,1] / float(height) #* cfgs.IMGHeight
-        boxes_f[:,3] = boxes_f[:,3] / float(height) #* cfgs.IMGHeight
-        image = cv2.resize(image,(cfgs.IMGWidth,cfgs.IMGHeight))
+        # min_side = min(height,width)
+        scale = (cfgs.IMGWidth+10.0)/width if (cfgs.IMGWidth+10.0)/width > (cfgs.IMGHeight+10.0)/height else (cfgs.IMGHeight+10.0)/height
+        n_w = width * scale
+        n_h = height * scale
+        boxes_f[:,0] = boxes_f[:,0] / float(width) * n_w
+        boxes_f[:,2] = boxes_f[:,2] / float(width) * n_w
+        boxes_f[:,1] = boxes_f[:,1] / float(height) * n_h
+        boxes_f[:,3] = boxes_f[:,3] / float(height) * n_h
+        image = cv2.resize(image,(int(n_w),int(n_h)))
         return image,boxes_f
     
     def resize_subtract_mean(self,image,gt):
@@ -119,8 +125,7 @@ class ReadDataset(u_data.Dataset): #data.Dataset
         h,w = image.shape[:2]
         if h < cfgs.IMGHeight or w < cfgs.IMGWidth:
             image,gt = self.rescale(image,gt,h,w)
-        else:
-            image,gt = self.cropimg(image,gt)
+        image,gt = self.cropimg(image,gt)
         image = image.astype(np.float32)
         image = image / 255.0
         image -= self.rgb_mean
@@ -150,10 +155,10 @@ class ReadDataset(u_data.Dataset): #data.Dataset
             gt[:,2] = np.clip(gt[:,2],nx1,nx2)-nx1
             gt[:,1] = np.clip(gt[:,1],ny1,ny2)-ny1
             gt[:,3] = np.clip(gt[:,3],ny1,ny2)-ny1
-            gt[:,0] = gt[:,0] / float(cfgs.IMGWidth)
-            gt[:,2] = gt[:,2] / float(cfgs.IMGWidth)
-            gt[:,1] = gt[:,1] / float(cfgs.IMGHeight)
-            gt[:,3] = gt[:,3] / float(cfgs.IMGHeight)
+            #gt[:,0] = gt[:,0] / float(cfgs.IMGWidth)
+            #gt[:,2] = gt[:,2] / float(cfgs.IMGWidth)
+            #gt[:,1] = gt[:,1] / float(cfgs.IMGHeight)
+            #gt[:,3] = gt[:,3] / float(cfgs.IMGHeight)
             if len(gt)>0:
                 break
         return img,gt

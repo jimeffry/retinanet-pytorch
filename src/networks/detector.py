@@ -13,7 +13,7 @@ import torch
 from torch import nn
 from torch.autograd import Function
 sys.path.append(os.path.join(os.path.dirname(__file__),'../utils'))
-from pth_nms import nms_py
+from pth_nms import nms_py,diounms
 from boxes_util import decode
 sys.path.append(os.path.join(os.path.dirname(__file__),'../configs'))
 from config import cfgs
@@ -61,6 +61,7 @@ class RetinanetDetector(Function):
                 # idx of highest scoring and non-overlapping boxes per class
                 #print(boxes.size(), scores.size())
                 # ids, count = pth_nms(boxes, scores,self.nms_threshold,self.top_k)
+                # ids,count = diounms(boxes,scores,self.nms_threshold,self.top_k)
                 ids,count = nms_py(boxes.detach().cpu().numpy(),scores.detach().cpu().numpy(),self.nms_threshold,self.top_k)
                 ids = torch.tensor(ids,dtype=torch.long)
                 if count ==0:

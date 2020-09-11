@@ -1,7 +1,9 @@
 #!/usr/bin/bash
 # python test/demo.py --img_path /data/detect/t11.png --modelpath /data/models/retinanet/retina_coco_best.pth
 # python test/demo.py  --modelpath /data/models/retinanet/retina_coco_best.pth --img_path /data/videos/anshan_crops2/752_5.jpg 
-python test/demo.py --img_path /home/lxy/Desktop/imgsegs --modelpath /data/models/retinanet/retina_coco_best.pth
+# python test/demo.py --img_path /home/lxy/Desktop/imgsegs --modelpath /data/models/retinanet/retina_coco_bestv2_iou.pth
+# python test/demo.py --img_path ../data/coco2017val.txt --img_dir /data/detect/COCO --modelpath /data/models/retinanet/retina_coco_bestv2_iou.pth
+python test/demo.py --img_path /home/lxy/Desktop/imgsegs/tf31.png --modelpath /data/models/retinanet/retina_coco_bestv2_iou.pth --save_dir ~/Desktop/imgzip
 #python test/demo.py --img_path /data/test/car1.jpeg --load_num 124
 # python test/demo.py --img_path  /data/detect/al1.png --load_num 124
 #python test/demo.py --img_path /data/pedestrian_2.mp4 --load_num 124

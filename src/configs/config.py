@@ -1,3 +1,6 @@
+from easydict import EasyDict
+
+cfgs = EasyDict()
 
 # for making bounding boxes pretty
 COLORS = ((255, 0, 0, 128), (0, 255, 0, 128), (0, 0, 255, 128),
@@ -23,8 +26,8 @@ cfgs.model_dir = '/data/models/retinanet' #'/mnt/data/LXY.data/models/retinanet'
 cfgs.Show_train_info = 100
 cfgs.Smry_iter = 2000
 cfgs.Total_Imgs = 133459#133644
-cfgs.IMGHeight = 640
-cfgs.IMGWidth = 640
+cfgs.IMGHeight = 640#540
+cfgs.IMGWidth = 1280#960
 cfgs.NEG_POS_RATIOS = 3.0
 cfgs.OVERLAP_THRESH = [0.4,0.5] # negtive < 0.3, positive >0.5
 cfgs.ModelPrefix = 'coco_retinanet' #'coco_retinanet' #'coco_resnet_50_state_dict' #
@@ -38,9 +41,12 @@ cfgs.FPNSIZES=[128*4,256*4,512*4]
 cfgs.MaskFPNScales = []
 cfgs.MaskOutsize = (28,28)
 #*******************************************************test
+#*******************************************************test
 cfgs.top_k = 300
-cfgs.conf_threshold = 0.01
+cfgs.score_threshold = 0.2
 cfgs.nms_threshold = 0.4
+cfgs.model_dir = '/data/models/retinanet'
+cfgs.conf_threshold = 0.01
 cfgs.labelmap = ['person','bicycle','motorbike','car','bus','aeroplane','train','boat']
 cfgs.save_folder = '/mnt/data/LXY.data/COCO/train_val'
 cfgs.use_07 = True

@@ -49,6 +49,7 @@ def parms():
     parser.add_argument('--batch_size',type=int,default=2,help='batch size for train')
     parser.add_argument('--gpu_list',type=str,default='0',help='traing gpus')
     parser.add_argument('--lr',type=float,default=0.01,help='the learning rate')
+    parser.add_argument('--weight_decay',type=float,default=5e-4,help="")
     return parser.parse_args()
 
 def rename_dict(state_dict):
@@ -88,8 +89,8 @@ def main(args):
     retinanet = RetinaMask(9,'train').to(device)
     if args.model_path:
         model_weights = torch.load(args.model_path,map_location=device)
-        model_weights = rename_dict(model_weights)
-        retinanet.load_state_dict(model_weights,strict=False)
+        #model_weights = rename_dict(model_weights)
+        retinanet.load_state_dict(model_weights,strict=True)
         logger.info("load weightes success: {}".format(args.model_path))
     BoxDetector = RetinanetDetector()
     #****************************************************************** load anchor
@@ -104,7 +105,8 @@ def main(args):
     if len(args.gpu_list.split(','))>0:
         retinanet = torch.nn.DataParallel(retinanet)
     # retinanet.train()
-    optimizer = optim.Adam(retinanet.parameters(), lr=args.lr)
+    # optimizer = optim.Adam(retinanet.parameters(), lr=args.lr,weight_decay=args.weight_decay)
+    optimizer = optim.SGD(retinanet.parameters(), lr=args.lr, momentum=0.9,weight_decay=args.weight_decay)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
     loss_hist = collections.deque(maxlen=500)
     loss_reg = collections.deque(maxlen=500)
@@ -117,13 +119,14 @@ def main(args):
     tmp_max = 0.0
     for epoch_num in range(args.start_iter,args.epochs):
         retinanet.train()
-        retinanet.module.freeze_bn()
+        #retinanet.module.freeze_bn()
+        lr = poly_lr_scheduler(optimizer,args.lr,epoch_num,max_iter=args.epochs, power=0.8)
         for idx,(img_batch, gt_batch )in enumerate(dataloader_train):
             save_fg = 0
             step +=1
             if use_cuda:
                 img_batch = img_batch.cuda()
-            
+            '''
             images = img_batch.numpy()
             targets = gt_batch
             priors = anchors
@@ -139,7 +142,7 @@ def main(args):
                 tmp_img = cv2.cvtColor(tmp_img,cv2.COLOR_RGB2BGR)
                 h,w = tmp_img.shape[:2]
                 if len(targets[i])>0:
-                    gt = targets[i] *640
+                    gt = targets[i]
                     for j in range(gt.shape[0]):
                         x1,y1 = int(gt[j,0]),int(gt[j,1])
                         x2,y2 = int(gt[j,2]),int(gt[j,3])
@@ -148,7 +151,7 @@ def main(args):
                             cv2.rectangle(tmp_img,(x1,y1),(x2,y2),(0,0,255))
                 for j in range(priors.size(0)):
                     if conf_t[i,j] >0:
-                        box = priors[j].cpu().numpy() *640
+                        box = priors[j].cpu().numpy()
                         # print(box)
                         x1,y1 = box[0],box[1]
                         x2,y2 = box[2],box[3]
@@ -159,28 +162,24 @@ def main(args):
                 cv2.imshow('src',tmp_img)
                 cv2.waitKey(0)
             '''
-            if step %100 ==0:
-                print(step)
-            if step < 2480:
-                continue
             classification, regression,_ = retinanet(img_batch)
             #print("begin to cal loss")
             classification_loss, regression_loss = criterion([classification,regression,anchors],gt_batch)
             # classification_loss = classification_loss.mean()
             # regression_loss = regression_loss.mean()
-            loss = 2*classification_loss + regression_loss
+            loss = classification_loss + regression_loss
             if bool(loss == 0):
                 continue
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
+            #torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
             optimizer.step()
             loss_hist.append(float(loss.item()))
             loss_cls.append(float(classification_loss.item()))
             loss_reg.append(float(regression_loss.item()))
-            if step %2 ==0:
-                logger.info('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f} | cls_mean:{} | reg_mean:{} | lr: {:.6f}'.format(epoch_num,step,classification_loss.item(), regression_loss.item(), np.mean(loss_hist),np.mean(loss_cls),np.mean(loss_reg),optimizer.param_groups[0]['lr']))
-            if step % 1000 ==0:
+            if step %500 ==0:
+                logger.info('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f} | cls_mean:{:.6f} | reg_mean:{:.6f} | lr: {:.6f}'.format(epoch_num,step,classification_loss.item(), regression_loss.item(), np.mean(loss_hist),np.mean(loss_cls),np.mean(loss_reg),lr))
+            if step % 3000 ==0:
             #     mmap = test_net(retinanet,BoxDetector,anchors,dataloader_val,use_cuda,'train',args)
                 save_fg = 1
             # if mmap > tmp_max:
@@ -196,7 +195,7 @@ def main(args):
                 logger.info("*****************save weightes******,%d" % step)
         # scheduler.step(np.mean(epoch_loss))
         # torch.save(retinanet.module, '{}/{}_retinanet_{}.pt'.format(args.model_dir,args.dataset, epoch_num))
-        '''
+
 def test_anchor(targets,priors):
     num_priors = priors.size(0)
     num = len(targets)
@@ -211,6 +210,23 @@ def test_anchor(targets,priors):
         match_ssd([0.3,0.5], truths, defaults,[0.1,0.2], labels,
                        loc_t, conf_t, idx)
     return conf_t
+
+def poly_lr_scheduler(optimizer, init_lr, iter, lr_decay_iter=1,
+                      max_iter=300, power=0.9):
+    """Polynomial decay of learning rate
+        :param init_lr is base learning rate
+        :param iter is a current iteration
+        :param lr_decay_iter how frequently decay occurs, default is 1
+        :param max_iter is number of maximum iterations
+        :param power is a polymomial power
+
+    """
+    # if iter % lr_decay_iter or iter > max_iter:
+    #     return optimizer
+
+    lr = init_lr*(1 - iter/max_iter)**power
+    optimizer.param_groups[0]['lr'] = lr
+    return lr
 
 if __name__=='__main__':
     args = parms()
